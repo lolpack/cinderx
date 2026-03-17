@@ -1,0 +1,95 @@
+name: Pyrefly + CinderX Integration
+
+on:
+  push:
+    branches: [pyrefly-integration]
+  pull_request:
+    branches: [pyrefly-integration]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  static-python-benchmark:
+    name: Static Python with Pyrefly type info
+    runs-on: ubuntu-latest
+    env:
+      # The strict loader expects a stubs/ directory that isn't shipped in the
+      # PyPI wheel. Point it at an empty dir since the PyreflyLoader uses
+      # opt_in_list to determine strictness instead of stubs.
+      PYTHONSTRICTMODULESTUBSPATH: /tmp/strict_stubs
+
+    steps:
+    - name: Create empty stubs directory
+      run: mkdir -p /tmp/strict_stubs
+    - name: Checkout CinderX
+      uses: actions/checkout@v6
+
+    - name: Set up Python
+      uses: actions/setup-python@v6
+      with:
+        python-version: '3.14'
+
+    - name: Set up uv
+      uses: astral-sh/setup-uv@v7
+
+    - name: Create venv
+      run: uv venv --python 3.14
+
+    - name: Install CinderX and pyrefly
+      run: uv pip install cinderx "pyrefly>=0.57.0"
+
+    - name: Verify installations
+      run: |
+        uv run --no-project python -c "
+        import cinderx
+        print('CinderX initialized:', cinderx.is_initialized())
+        assert cinderx.is_initialized(), 'CinderX failed to initialize'
+        "
+        uv run --no-project pyrefly --version
+
+    - name: Generate Pyrefly type info
+      run: |
+        uv run --no-project pyrefly check \
+          --search-path cinderx/test_pyrefly_integration \
+          --report-cinderx cinderx/test_pyrefly_integration/benchmark/pyrefly_types \
+          cinderx/test_pyrefly_integration/benchmark/math_ops.py
+
+        echo "=== Generated files ==="
+        find cinderx/test_pyrefly_integration/benchmark/pyrefly_types -type f
+        echo
+        echo "=== index.json ==="
+        cat cinderx/test_pyrefly_integration/benchmark/pyrefly_types/index.json 2>/dev/null | head -30
+        echo
+
+    - name: Copy test files outside repo tree
+      run: |
+        # Run from outside the repo so 'import cinderx' resolves to the
+        # pip-installed package, not the repo source directory.
+        cp -r cinderx/test_pyrefly_integration /tmp/test_pyrefly
+
+    - name: Run benchmark WITH CinderX JIT
+      run: |
+        uv run --no-project python /tmp/test_pyrefly/run_benchmark.py
+
+    - name: Run benchmark WITHOUT JIT (comparison)
+      run: |
+        PYTHONJITDISABLE=1 uv run --no-project python /tmp/test_pyrefly/run_benchmark.py
+
+    # --- Three-way comparison: Untyped vs Static Python vs Static Python + JIT ---
+
+    - name: "Benchmark A: Untyped Python (baseline, no types, no JIT)"
+      timeout-minutes: 5
+      run: |
+        PYTHONJITDISABLE=1 uv run --no-project python /tmp/test_pyrefly/pure_python_benchmark.py
+
+    - name: "Benchmark B: Static Python types, NO JIT"
+      timeout-minutes: 5
+      run: |
+        PYTHONJITDISABLE=1 uv run --no-project python /tmp/test_pyrefly/typed_benchmark.py
+
+    - name: "Benchmark C: Static Python types + CinderX JIT"
+      timeout-minutes: 5
+      run: |
+        uv run --no-project python /tmp/test_pyrefly/typed_benchmark.py
