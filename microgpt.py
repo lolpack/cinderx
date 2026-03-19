@@ -138,7 +138,7 @@ def gpt(token_id, pos_id, keys, values):
         x_residual = x
         x = rmsnorm(x)
         x = linear(x, state_dict[f'layer{li}.mlp_fc1'])
-        x = [xi.relu() for xi in x]
+        x = [xi.relu() for xi in x]  # pyrefly: ignore
         x = linear(x, state_dict[f'layer{li}.mlp_fc2'])
         x = [a + b for a, b in zip(x, x_residual)]
 
@@ -171,7 +171,7 @@ for step in range(num_steps):
     loss = (1 / n) * sum(losses) # final average loss over the document sequence. May yours be low.
 
     # Backward the loss, calculating the gradients with respect to all model parameters
-    loss.backward()
+    loss.backward()  # pyrefly: ignore
 
     # Adam optimizer update: update the model parameters based on the corresponding gradients
     lr_t = learning_rate * (1 - step / num_steps) # linear learning rate decay
@@ -183,7 +183,7 @@ for step in range(num_steps):
         p.data -= lr_t * m_hat / (v_hat ** 0.5 + eps_adam)
         p.grad = 0
 
-    print(f"step {step+1:4d} / {num_steps:4d} | loss {loss.data:.4f}", end='\r')
+    print(f"step {step+1:4d} / {num_steps:4d} | loss {loss.data:.4f}", end='\r')  # pyrefly: ignore
 
 # Inference: may the model babble back to us
 temperature = 0.5 # in (0, 1], control the "creativity" of generated text, low to high
