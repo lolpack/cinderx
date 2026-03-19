@@ -49,7 +49,7 @@ jobs:
         "
         uv run --no-project pyrefly --version
 
-    - name: Generate Pyrefly type info
+    - name: Generate Pyrefly type info for math_ops
       run: |
         uv run --no-project pyrefly check \
           --search-path cinderx/test_pyrefly_integration \
@@ -63,11 +63,27 @@ jobs:
         cat cinderx/test_pyrefly_integration/benchmark/pyrefly_types/index.json 2>/dev/null | head -30
         echo
 
+    - name: Generate Pyrefly type info for microgpt
+      run: |
+        uv run --no-project pyrefly check \
+          --search-path . \
+          --report-cinderx cinderx/test_pyrefly_integration/microgpt_pyrefly_types \
+          microgpt.py
+
+        echo "=== Generated files ==="
+        find cinderx/test_pyrefly_integration/microgpt_pyrefly_types -type f
+        echo
+        echo "=== index.json ==="
+        cat cinderx/test_pyrefly_integration/microgpt_pyrefly_types/index.json 2>/dev/null | head -30
+        echo
+
     - name: Copy test files outside repo tree
       run: |
         # Run from outside the repo so 'import cinderx' resolves to the
         # pip-installed package, not the repo source directory.
         cp -r cinderx/test_pyrefly_integration /tmp/test_pyrefly
+        # Copy microgpt.py alongside the test scripts so the loader can import it
+        cp microgpt.py /tmp/test_pyrefly/
 
     - name: Run benchmark WITH CinderX JIT
       run: |
@@ -93,3 +109,15 @@ jobs:
       timeout-minutes: 5
       run: |
         uv run --no-project python /tmp/test_pyrefly/typed_benchmark.py
+
+    # --- MicroGPT with Static Python ---
+
+    - name: "MicroGPT: Static Python + CinderX JIT"
+      timeout-minutes: 10
+      run: |
+        MICROGPT_STEPS=100 uv run --no-project python /tmp/test_pyrefly/run_microgpt_static.py
+
+    - name: "MicroGPT: baseline (no Static Python, no JIT)"
+      timeout-minutes: 10
+      run: |
+        MICROGPT_STEPS=100 PYTHONJITDISABLE=1 uv run --no-project python /tmp/test_pyrefly/microgpt.py
