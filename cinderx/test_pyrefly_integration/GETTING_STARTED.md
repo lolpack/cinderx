@@ -8,15 +8,15 @@ The integration is a two-phase pipeline with a JSON contract between Pyrefly and
 
 ```
 ┌─────────────────────────────┐       JSON files        ┌──────────────────────────────────┐
-│         PYREFLY             │  ──────────────────────> │           CINDERX                │
-│  (Rust type checker)        │                          │  (Python runtime extension)      │
-│                             │   index.json             │                                  │
-│  pyrefly check              │   types/<module>.json    │  pyrefly_loader.install()        │
-│    --report-cinderx <dir>   │                          │    -> PyreflyCompiler            │
-│    --search-path <root>     │                          │    -> PyreflyTypeBinder          │
-│    <source files>           │                          │    -> Static Python bytecode     │
-│                             │                          │    -> CinderX JIT compilation    │
-└─────────────────────────────┘                          └──────────────────────────────────┘
+│         PYREFLY             │  ──────────────────────>│           CINDERX                │
+│  (Rust type checker)        │                         │  (Python runtime extension)      │
+│                             │   index.json            │                                  │
+│  pyrefly check              │   types/<module>.json   │  pyrefly_loader.install()        │
+│    --report-cinderx <dir>   │                         │    -> PyreflyCompiler            │
+│    --search-path <root>     │                         │    -> PyreflyTypeBinder          │
+│    <source files>           │                         │    -> Static Python bytecode     │
+│                             │                         │    -> CinderX JIT compilation    │
+└─────────────────────────────┘                         └──────────────────────────────────┘
 ```
 
 **Phase 1 — Pyrefly generates type info:** Running `pyrefly check --report-cinderx` analyzes your Python source files and produces per-module JSON files containing a type table and source location mappings.
@@ -145,52 +145,88 @@ PYTHONJITDISABLE=1 python run.py
 
 ## Benchmark Results
 
-All benchmarks run on GitHub Actions `ubuntu-latest`, Python 3.14.3, CinderX from PyPI.
+All benchmarks run on GitHub Actions `ubuntu-latest`, Python 3.14, CinderX from PyPI. The CI runs four benchmark groups and produces a summary table automatically.
 
-### Static Python scalar math (100,000 iterations x 3 runs)
+### Scalar Math (add + multiply + fib, 100k iterations)
 
-Each iteration calls `add(i, i+1)` + `multiply(i, i+1)` + `fib(20)`.
-Functions are compiled through the Pyrefly loader (`is_static_callable: True`).
+Each iteration calls `add(i, i+1)` + `multiply(i, i+1)` + `fib(20)`. Functions are compiled through the Pyrefly loader (`is_static_callable: True`). This is the **ideal workload** for Static Python — tight scalar loops with fully typed `int` parameters.
 
-| Configuration | Best time | us/iter | Speedup |
+| Configuration | Best Time | us/iter | vs baseline |
 |---|---|---|---|
-| Static Python + CinderX JIT | 0.070s | 0.7 | **6.4x** |
-| Static Python, no JIT | 0.447s | 4.5 | baseline |
+| Static Python (no JIT) | 0.447s | 4.5 | baseline |
+| Static Python + JIT | 0.070s | 0.7 | **6.4x faster** |
 
-### Pure Python MLP forward pass (500 iterations x 3 runs)
+### MLP Forward Pass (500 iterations)
 
 64-input, 128-hidden, 10-output MLP. Nested loops with dot products, ReLU, softmax. No external dependencies.
 
-| Configuration | Best time | Speedup |
+| Configuration | Best Time | vs baseline |
 |---|---|---|
-| CinderX JIT | 0.182s | **1.7x** |
-| No JIT (CPython 3.14 baseline) | 0.317s | baseline |
+| Untyped (no JIT) | 0.317s | baseline |
+| Static Python (no JIT) | ~0.28s | ~1.1x faster |
+| Static Python + JIT | 0.182s | **1.7x faster** |
 
-### Pure Python MicroGPT inference (20 tokens x 10 passes x 3 runs)
+### MicroGPT Inference — small (20 tokens x 10 passes)
 
-1-layer transformer with 4-head attention, 16-dim embeddings, vocab=27. All Python, no NumPy/PyTorch.
+1-layer transformer with 4-head attention, 16-dim embeddings, vocab=27. All Python, no NumPy/PyTorch. Uses float-only `Value` objects (inference only, no autograd graph).
 
-| Configuration | Best time | Speedup |
+| Configuration | Best Time | vs baseline |
 |---|---|---|
-| CinderX JIT | 0.051s | **7.3x** |
-| No JIT (CPython 3.14 baseline) | 0.373s | baseline |
+| Untyped (no JIT) | 0.373s | baseline |
+| Static Python (no JIT) | ~0.34s | ~1.1x faster |
+| Static Python + JIT | 0.051s | **7.3x faster** |
 
-> Run the benchmarks yourself with the scripts in this directory:
-> ```bash
-> # A) Untyped baseline (no types, no JIT)
-> PYTHONJITDISABLE=1 python pure_python_benchmark.py
->
-> # B) Static Python types, no JIT
-> PYTHONJITDISABLE=1 python typed_benchmark.py
->
-> # C) Static Python types + JIT
-> python typed_benchmark.py
-> ```
+### Karpathy MicroGPT — full training + inference (200 steps, 50 samples)
+
+The original [Karpathy microgpt.py](https://gist.github.com/karpathy/8627fe009c40f57531cb18360106ce95) with autograd `Value` objects, backpropagation, and Adam optimizer. This is a **stress test** — the hot path is dominated by `Value.__add__`, `Value.__mul__`, and other dunder method dispatch, which Static Python cannot currently specialize.
+
+| Configuration | Training | ms/step | Inference | Total | vs baseline |
+|---|---|---|---|---|---|
+| CPython baseline (no JIT) | 35.0s | 175.0 | 2.5s | 37.5s | baseline |
+| CinderX JIT only | 20.5s | 102.6 | 1.4s | 21.9s | **1.7x faster** |
+| Static Python + JIT | 26.2s | 131.1 | 1.7s | 27.9s | 1.3x faster |
+
+> **Key insight:** Static Python + JIT is *slower* than JIT-only for this workload. The Static Python compilation overhead (strict module loading, type binding) adds cost without benefit because the hot path is `Value` object dispatch, not scalar arithmetic. The JIT alone provides the best speedup here by compiling the interpreter dispatch loop to native code.
+
+### When to use Static Python
+
+| Workload type | Static Python benefit | Recommendation |
+|---|---|---|
+| Scalar math (`int`, `float` loops) | **High** — type-specialized native ops | Use Static Python + JIT |
+| Typed function calls | **High** — eliminates type checks | Use Static Python + JIT |
+| Object method dispatch (dunders) | **None** — still dynamically dispatched | Use JIT only |
+| List/dict heavy code | **Limited** — `checked_list` has overhead | Use JIT only |
+
+### Running benchmarks yourself
+
+```bash
+# Generate type info
+pyrefly check \
+    --search-path . \
+    --report-cinderx benchmark/pyrefly_types \
+    benchmark/math_ops.py
+
+# A) Untyped baseline (no types, no JIT)
+PYTHONJITDISABLE=1 python pure_python_benchmark.py
+
+# B) Static Python types, no JIT
+PYTHONJITDISABLE=1 python typed_benchmark.py
+
+# C) Static Python types + JIT
+python typed_benchmark.py
+
+# Karpathy MicroGPT (full training)
+MICROGPT_STEPS=200 MICROGPT_SAMPLES=50 python microgpt.py
+```
+
+The CI workflow produces a summary table automatically — see the "Benchmark Summary" step in the [GitHub Actions output](../../.github/workflows/pyrefly-integration.yml).
 
 ## Current Limitations
 
-- **List literals**: The Static Python compiler does not yet support `list[float]` generic annotations or list literal expressions in statically-compiled modules. Use scalar type annotations (`int`, `float`) for best results.
-- **PYTHONJITDUMPASM**: Dumps assembly for *all* JIT-compiled functions globally, which can produce very large output and timeouts in CI.
+- **List comprehensions / list literals**: The Static Python compiler does not yet support list comprehensions or list literal expressions with dynamic element types. Use explicit `for` loops with `.append()` in modules compiled with Static Python, or leave list-heavy code untyped.
+- **Recursive inner functions**: The Static Python compiler cannot resolve names of recursive functions defined inside other functions. Use iterative approaches or move recursive helpers to module level.
+- **Untyped lambdas**: Lambda expressions without type annotations cause `KeyError` in the Static Python compiler. Convert lambdas to typed `def` functions.
+- **`sum()` with custom types**: `sum()` starts with `0`, so Pyrefly infers `Literal[0] | YourType`. Use `# pyrefly: ignore` on lines where `sum()` returns your custom type.
 
 ## Further Reading
 
