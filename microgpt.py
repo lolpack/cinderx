@@ -59,15 +59,21 @@ class Value:
     def __rtruediv__(self, other): return other * self**-1
 
     def backward(self):
-        topo = []
-        visited = set()
-        def build_topo(v):
+        topo: list[Value] = []
+        visited: set[Value] = set()
+        stack: list[tuple[Value, int]] = [(self, 0)]
+        while stack:
+            v, idx = stack[-1]
             if v not in visited:
                 visited.add(v)
-                for child in v._children:
-                    build_topo(child)
+            if idx < len(v._children):
+                stack[-1] = (v, idx + 1)
+                child = v._children[idx]
+                if child not in visited:
+                    stack.append((child, 0))
+            else:
+                stack.pop()
                 topo.append(v)
-        build_topo(self)
         self.grad = 1
         for v in reversed(topo):
             for child, local_grad in zip(v._children, v._local_grads):
