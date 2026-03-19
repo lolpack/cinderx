@@ -186,10 +186,10 @@ for step in range(num_steps):
         p.data -= lr_t * m_hat / (v_hat ** 0.5 + eps_adam)
         p.grad = 0
 
-    print(f"step {step+1:4d} / {num_steps:4d} | loss {loss.data:.4f}", end='\r')  # pyrefly: ignore
+    print(f"step {step+1:4d} / {num_steps:4d} | loss {loss.data:.4f}")  # pyrefly: ignore
 
 train_elapsed = time.perf_counter() - train_start
-print(f"\ntraining: {num_steps} steps in {train_elapsed:.3f}s ({train_elapsed/num_steps*1000:.1f} ms/step)")
+print(f"training: {num_steps} steps in {train_elapsed:.3f}s ({train_elapsed/num_steps*1000:.1f} ms/step)")
 
 # Inference: may the model babble back to us
 temperature = 0.5 # in (0, 1], control the "creativity" of generated text, low to high
