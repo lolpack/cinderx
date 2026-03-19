@@ -110,14 +110,20 @@ jobs:
       run: |
         uv run --no-project python /tmp/test_pyrefly/typed_benchmark.py
 
-    # --- MicroGPT with Static Python ---
+    # --- MicroGPT three-way benchmark ---
+    # Each run prints its own training/inference timing for comparison.
 
-    - name: "MicroGPT: Static Python + CinderX JIT"
+    - name: "MicroGPT A: CPython baseline (no JIT, no Static Python)"
       timeout-minutes: 10
       run: |
-        MICROGPT_STEPS=100 uv run --no-project python /tmp/test_pyrefly/run_microgpt_static.py
+        MICROGPT_STEPS=200 MICROGPT_SAMPLES=50 PYTHONJITDISABLE=1 uv run --no-project python /tmp/test_pyrefly/microgpt.py
 
-    - name: "MicroGPT: baseline (no Static Python, no JIT)"
+    - name: "MicroGPT B: CinderX JIT only (no Static Python)"
       timeout-minutes: 10
       run: |
-        MICROGPT_STEPS=100 PYTHONJITDISABLE=1 uv run --no-project python /tmp/test_pyrefly/microgpt.py
+        MICROGPT_STEPS=200 MICROGPT_SAMPLES=50 uv run --no-project python /tmp/test_pyrefly/microgpt.py
+
+    - name: "MicroGPT C: Static Python + CinderX JIT"
+      timeout-minutes: 10
+      run: |
+        MICROGPT_STEPS=200 MICROGPT_SAMPLES=50 uv run --no-project python /tmp/test_pyrefly/run_microgpt_static.py

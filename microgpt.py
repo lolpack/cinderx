@@ -11,6 +11,7 @@ https://gist.github.com/karpathy/8627fe009c40f57531cb18360106ce95
 import os       # os.path.exists
 import math     # math.log, math.exp
 import random   # random.seed, random.choices, random.gauss, random.shuffle
+import time     # time.perf_counter for benchmarking
 random.seed(42) # Let there be order among chaos
 
 # Let there be a Dataset `docs`: list[str] of documents (e.g. a list of names)
@@ -153,6 +154,7 @@ v = [0.0] * len(params) # second moment buffer
 
 # Repeat in sequence
 num_steps = int(os.environ.get('MICROGPT_STEPS', '1000')) # number of training steps
+train_start = time.perf_counter()
 for step in range(num_steps):
 
     # Take single document, tokenize it, surround it with BOS special token on both sides
@@ -186,10 +188,15 @@ for step in range(num_steps):
 
     print(f"step {step+1:4d} / {num_steps:4d} | loss {loss.data:.4f}", end='\r')  # pyrefly: ignore
 
+train_elapsed = time.perf_counter() - train_start
+print(f"\ntraining: {num_steps} steps in {train_elapsed:.3f}s ({train_elapsed/num_steps*1000:.1f} ms/step)")
+
 # Inference: may the model babble back to us
 temperature = 0.5 # in (0, 1], control the "creativity" of generated text, low to high
-print("\n--- inference (new, hallucinated names) ---")
-for sample_idx in range(20):
+infer_start = time.perf_counter()
+print("--- inference (new, hallucinated names) ---")
+num_samples = int(os.environ.get('MICROGPT_SAMPLES', '20'))
+for sample_idx in range(num_samples):
     keys, values = [[] for _ in range(n_layer)], [[] for _ in range(n_layer)]
     token_id = BOS
     sample = []
@@ -201,3 +208,6 @@ for sample_idx in range(20):
             break
         sample.append(uchars[token_id])
     print(f"sample {sample_idx+1:2d}: {''.join(sample)}")
+infer_elapsed = time.perf_counter() - infer_start
+print(f"inference: {num_samples} samples in {infer_elapsed:.3f}s")
+print(f"total: {train_elapsed + infer_elapsed:.3f}s")
