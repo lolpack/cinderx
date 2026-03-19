@@ -209,5 +209,25 @@ for sample_idx in range(num_samples):
         sample.append(uchars[token_id])
     print(f"sample {sample_idx+1:2d}: {''.join(sample)}")
 infer_elapsed = time.perf_counter() - infer_start
+total_elapsed = train_elapsed + infer_elapsed
 print(f"inference: {num_samples} samples in {infer_elapsed:.3f}s")
-print(f"total: {train_elapsed + infer_elapsed:.3f}s")
+print(f"total: {total_elapsed:.3f}s")
+
+# Write JSON results for collection (only when run directly, not imported)
+results_dir = os.environ.get("BENCHMARK_RESULTS_DIR")
+config = os.environ.get("BENCHMARK_CONFIG", "MicroGPT")
+if results_dir and __name__ == "__main__":
+    import json as _json
+    os.makedirs(results_dir, exist_ok=True)
+    _results = {
+        "config": config,
+        "microgpt_train_s": round(train_elapsed, 3),
+        "microgpt_ms_per_step": round(train_elapsed / num_steps * 1000, 1),
+        "microgpt_infer_s": round(infer_elapsed, 3),
+        "microgpt_total_s": round(total_elapsed, 3),
+        "microgpt_steps": num_steps,
+        "microgpt_samples": num_samples,
+    }
+    _path = os.path.join(results_dir, f"microgpt_{config.replace(' ', '_')}.json")
+    with open(_path, "w") as _f:
+        _json.dump(_results, _f, indent=2)

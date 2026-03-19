@@ -172,6 +172,22 @@ def main() -> None:
     print("Typed benchmark: SUCCESS")
     print("=" * 60)
 
+    # Write JSON results for collection
+    results_dir = os.environ.get("BENCHMARK_RESULTS_DIR")
+    config = os.environ.get("BENCHMARK_CONFIG", "Static Python" + (" + JIT" if jit_enabled else " (no JIT)"))
+    if results_dir:
+        os.makedirs(results_dir, exist_ok=True)
+        results = {
+            "config": config,
+            "scalar_math_best_s": best,
+            "scalar_math_us_per_iter": best / num_iters * 1e6,
+            "mlp_best_s": best_mlp,
+            "microgpt_infer_best_s": best_gpt,
+        }
+        path = os.path.join(results_dir, f"scalar_mlp_{config.replace(' ', '_')}.json")
+        with open(path, "w") as f:
+            json.dump(results, f, indent=2)
+
 
 if __name__ == "__main__":
     main()

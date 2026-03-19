@@ -267,6 +267,21 @@ def main() -> None:
     print("Pure Python ML benchmark: SUCCESS")
     print("=" * 60)
 
+    # Write JSON results for collection
+    import json
+    results_dir = os.environ.get("BENCHMARK_RESULTS_DIR")
+    config = os.environ.get("BENCHMARK_CONFIG", "Untyped Python")
+    if results_dir:
+        os.makedirs(results_dir, exist_ok=True)
+        results = {
+            "config": config,
+            "mlp_best_s": best_mlp,
+            "microgpt_infer_best_s": best_gpt,
+        }
+        path = os.path.join(results_dir, f"scalar_mlp_{config.replace(' ', '_')}.json")
+        with open(path, "w") as f:
+            json.dump(results, f, indent=2)
+
 
 if __name__ == "__main__":
     main()

@@ -19,10 +19,14 @@ jobs:
       # PyPI wheel. Point it at an empty dir since the PyreflyLoader uses
       # opt_in_list to determine strictness instead of stubs.
       PYTHONSTRICTMODULESTUBSPATH: /tmp/strict_stubs
+      BENCHMARK_RESULTS_DIR: /tmp/benchmark_results
 
     steps:
-    - name: Create empty stubs directory
-      run: mkdir -p /tmp/strict_stubs
+    - name: Create directories
+      run: |
+        mkdir -p /tmp/strict_stubs
+        mkdir -p /tmp/benchmark_results
+
     - name: Checkout CinderX
       uses: actions/checkout@v6
 
@@ -85,45 +89,58 @@ jobs:
         # Copy microgpt.py alongside the test scripts so the loader can import it
         cp microgpt.py /tmp/test_pyrefly/
 
-    - name: Run benchmark WITH CinderX JIT
-      run: |
-        uv run --no-project python /tmp/test_pyrefly/run_benchmark.py
+    # --- Scalar math / MLP / small MicroGPT benchmarks ---
 
-    - name: Run benchmark WITHOUT JIT (comparison)
-      run: |
-        PYTHONJITDISABLE=1 uv run --no-project python /tmp/test_pyrefly/run_benchmark.py
-
-    # --- Three-way comparison: Untyped vs Static Python vs Static Python + JIT ---
-
-    - name: "Benchmark A: Untyped Python (baseline, no types, no JIT)"
+    - name: "Benchmark: Untyped Python (no JIT)"
       timeout-minutes: 5
       run: |
-        PYTHONJITDISABLE=1 uv run --no-project python /tmp/test_pyrefly/pure_python_benchmark.py
+        BENCHMARK_CONFIG="1_Untyped_(no_JIT)" \
+        PYTHONJITDISABLE=1 \
+        uv run --no-project python /tmp/test_pyrefly/pure_python_benchmark.py
 
-    - name: "Benchmark B: Static Python types, NO JIT"
+    - name: "Benchmark: Static Python (no JIT)"
       timeout-minutes: 5
       run: |
-        PYTHONJITDISABLE=1 uv run --no-project python /tmp/test_pyrefly/typed_benchmark.py
-
-    - name: "Benchmark C: Static Python types + CinderX JIT"
-      timeout-minutes: 5
-      run: |
+        BENCHMARK_CONFIG="2_Static_Python_(no_JIT)" \
+        PYTHONJITDISABLE=1 \
         uv run --no-project python /tmp/test_pyrefly/typed_benchmark.py
 
-    # --- MicroGPT three-way benchmark ---
-    # Each run prints its own training/inference timing for comparison.
+    - name: "Benchmark: Static Python + JIT"
+      timeout-minutes: 5
+      run: |
+        BENCHMARK_CONFIG="3_Static_Python_+_JIT" \
+        uv run --no-project python /tmp/test_pyrefly/typed_benchmark.py
 
-    - name: "MicroGPT A: CPython baseline (no JIT, no Static Python)"
+    # --- Karpathy MicroGPT (full training + inference) ---
+
+    - name: "MicroGPT: CPython baseline (no JIT)"
       timeout-minutes: 10
       run: |
-        MICROGPT_STEPS=200 MICROGPT_SAMPLES=50 PYTHONJITDISABLE=1 uv run --no-project python /tmp/test_pyrefly/microgpt.py
+        BENCHMARK_CONFIG="1_CPython_baseline" \
+        MICROGPT_STEPS=200 MICROGPT_SAMPLES=50 \
+        PYTHONJITDISABLE=1 \
+        uv run --no-project python /tmp/test_pyrefly/microgpt.py
 
-    - name: "MicroGPT B: CinderX JIT only (no Static Python)"
+    - name: "MicroGPT: CinderX JIT only"
       timeout-minutes: 10
       run: |
-        MICROGPT_STEPS=200 MICROGPT_SAMPLES=50 uv run --no-project python /tmp/test_pyrefly/microgpt.py
+        BENCHMARK_CONFIG="2_CinderX_JIT_only" \
+        MICROGPT_STEPS=200 MICROGPT_SAMPLES=50 \
+        uv run --no-project python /tmp/test_pyrefly/microgpt.py
 
-    - name: "MicroGPT C: Static Python + CinderX JIT"
+    - name: "MicroGPT: Static Python + JIT"
       timeout-minutes: 10
       run: |
-        MICROGPT_STEPS=200 MICROGPT_SAMPLES=50 uv run --no-project python /tmp/test_pyrefly/run_microgpt_static.py
+        BENCHMARK_CONFIG="3_Static_Python_+_JIT" \
+        MICROGPT_STEPS=200 MICROGPT_SAMPLES=50 \
+        uv run --no-project python /tmp/test_pyrefly/run_microgpt_static.py
+
+    # --- Summary table ---
+
+    - name: Benchmark Summary
+      if: always()
+      run: |
+        echo "=== Raw result files ==="
+        ls -la /tmp/benchmark_results/ || true
+        echo
+        uv run --no-project python /tmp/test_pyrefly/collect_results.py

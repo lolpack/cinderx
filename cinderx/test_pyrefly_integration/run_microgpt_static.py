@@ -93,6 +93,12 @@ def main() -> None:
     compile_time = cinderx.jit.get_compilation_time()
     cinderx.jit.disable()
 
+    train_s = getattr(microgpt, "train_elapsed", None)
+    infer_s = getattr(microgpt, "infer_elapsed", None)
+    total_s = getattr(microgpt, "total_elapsed", None)
+    num_steps = getattr(microgpt, "num_steps", None)
+    num_samples = getattr(microgpt, "num_samples", None)
+
     print()
     print("=" * 60)
     print("SUMMARY")
@@ -101,9 +107,31 @@ def main() -> None:
     print(f"  JIT compiled funcs:   {num_compiled}")
     print(f"  JIT compile time:     {compile_time}ms")
     print(f"  Total elapsed:        {elapsed:.3f}s")
+    if train_s is not None:
+        print(f"  Training:             {train_s:.3f}s ({train_s/num_steps*1000:.1f} ms/step)")
+        print(f"  Inference:            {infer_s:.3f}s")
     print()
     print("MicroGPT Static Python: SUCCESS")
     print("=" * 60)
+
+    # Write JSON results for collection (microgpt.py also writes its own,
+    # but this one includes the correct config label)
+    results_dir = os.environ.get("BENCHMARK_RESULTS_DIR")
+    config = os.environ.get("BENCHMARK_CONFIG", "Static Python + JIT")
+    if results_dir and train_s is not None:
+        os.makedirs(results_dir, exist_ok=True)
+        results = {
+            "config": config,
+            "microgpt_train_s": round(train_s, 3),
+            "microgpt_ms_per_step": round(train_s / num_steps * 1000, 1),
+            "microgpt_infer_s": round(infer_s, 3),
+            "microgpt_total_s": round(total_s, 3),
+            "microgpt_steps": num_steps,
+            "microgpt_samples": num_samples,
+        }
+        path = os.path.join(results_dir, f"microgpt_{config.replace(' ', '_')}.json")
+        with open(path, "w") as f:
+            json.dump(results, f, indent=2)
 
 
 if __name__ == "__main__":
