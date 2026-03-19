@@ -93,21 +93,21 @@ print(f"num params: {len(params)}")
 
 # Define the model architecture: a function mapping tokens and parameters to logits over what comes next
 # Follow GPT-2, blessed among the GPTs, with minor differences: layernorm -> rmsnorm, no biases, GeLU -> ReLU
-def linear(x, w):
-    return [sum(wi * xi for wi, xi in zip(wo, x)) for wo in w]
+def linear(x: list[Value], w: list[list[Value]]) -> list[Value]:
+    return [sum(wi * xi for wi, xi in zip(wo, x)) for wo in w]  # pyrefly: ignore
 
-def softmax(logits):
+def softmax(logits: list[Value]) -> list[Value]:
     max_val = max(val.data for val in logits)
     exps = [(val - max_val).exp() for val in logits]
     total = sum(exps)
     return [e / total for e in exps]
 
-def rmsnorm(x):
+def rmsnorm(x: list[Value]) -> list[Value]:
     ms = sum(xi * xi for xi in x) / len(x)
     scale = (ms + 1e-5) ** -0.5
     return [xi * scale for xi in x]
 
-def gpt(token_id, pos_id, keys, values):
+def gpt(token_id: int, pos_id: int, keys: list[list[list[Value]]], values: list[list[list[Value]]]) -> list[Value]:
     tok_emb = state_dict['wte'][token_id] # token embedding
     pos_emb = state_dict['wpe'][pos_id] # position embedding
     x = [t + p for t, p in zip(tok_emb, pos_emb)] # joint token and position embedding
@@ -132,7 +132,7 @@ def gpt(token_id, pos_id, keys, values):
             attn_weights = softmax(attn_logits)
             head_out = [sum(attn_weights[t] * v_h[t][j] for t in range(len(v_h))) for j in range(head_dim)]
             x_attn.extend(head_out)
-        x = linear(x_attn, state_dict[f'layer{li}.attn_wo'])
+        x = linear(x_attn, state_dict[f'layer{li}.attn_wo'])  # pyrefly: ignore
         x = [a + b for a, b in zip(x, x_residual)]
         # 2) MLP block
         x_residual = x
@@ -161,14 +161,14 @@ for step in range(num_steps):
 
     # Forward the token sequence through the model, building up the computation graph all the way to the loss
     keys, values = [[] for _ in range(n_layer)], [[] for _ in range(n_layer)]
-    losses = []
+    losses: list[Value] = []
     for pos_id in range(n):
         token_id, target_id = tokens[pos_id], tokens[pos_id + 1]
         logits = gpt(token_id, pos_id, keys, values)
         probs = softmax(logits)
-        loss_t = -probs[target_id].log()
+        loss_t: Value = -probs[target_id].log()
         losses.append(loss_t)
-    loss = (1 / n) * sum(losses) # final average loss over the document sequence. May yours be low.
+    loss: Value = (1 / n) * sum(losses) # final average loss over the document sequence. May yours be low.  # pyrefly: ignore
 
     # Backward the loss, calculating the gradients with respect to all model parameters
     loss.backward()
