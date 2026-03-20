@@ -1,0 +1,146 @@
+name: Pyrefly + CinderX Integration
+
+on:
+  push:
+    branches: [pyrefly-integration]
+  pull_request:
+    branches: [pyrefly-integration]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  static-python-benchmark:
+    name: Static Python with Pyrefly type info
+    runs-on: ubuntu-latest
+    env:
+      # The strict loader expects a stubs/ directory that isn't shipped in the
+      # PyPI wheel. Point it at an empty dir since the PyreflyLoader uses
+      # opt_in_list to determine strictness instead of stubs.
+      PYTHONSTRICTMODULESTUBSPATH: /tmp/strict_stubs
+      BENCHMARK_RESULTS_DIR: /tmp/benchmark_results
+
+    steps:
+    - name: Create directories
+      run: |
+        mkdir -p /tmp/strict_stubs
+        mkdir -p /tmp/benchmark_results
+
+    - name: Checkout CinderX
+      uses: actions/checkout@v6
+
+    - name: Set up Python
+      uses: actions/setup-python@v6
+      with:
+        python-version: '3.14'
+
+    - name: Set up uv
+      uses: astral-sh/setup-uv@v7
+
+    - name: Create venv
+      run: uv venv --python 3.14
+
+    - name: Install CinderX and pyrefly
+      run: uv pip install cinderx "pyrefly>=0.57.0"
+
+    - name: Verify installations
+      run: |
+        uv run --no-project python -c "
+        import cinderx
+        print('CinderX initialized:', cinderx.is_initialized())
+        assert cinderx.is_initialized(), 'CinderX failed to initialize'
+        "
+        uv run --no-project pyrefly --version
+
+    - name: Generate Pyrefly type info for math_ops
+      run: |
+        uv run --no-project pyrefly check \
+          --search-path cinderx/test_pyrefly_integration \
+          --report-cinderx cinderx/test_pyrefly_integration/benchmark/pyrefly_types \
+          cinderx/test_pyrefly_integration/benchmark/math_ops.py
+
+        echo "=== Generated files ==="
+        find cinderx/test_pyrefly_integration/benchmark/pyrefly_types -type f
+        echo
+        echo "=== index.json ==="
+        cat cinderx/test_pyrefly_integration/benchmark/pyrefly_types/index.json 2>/dev/null | head -30
+        echo
+
+    - name: Generate Pyrefly type info for microgpt
+      run: |
+        uv run --no-project pyrefly check \
+          --search-path . \
+          --report-cinderx cinderx/test_pyrefly_integration/microgpt_pyrefly_types \
+          microgpt.py
+
+        echo "=== Generated files ==="
+        find cinderx/test_pyrefly_integration/microgpt_pyrefly_types -type f
+        echo
+        echo "=== index.json ==="
+        cat cinderx/test_pyrefly_integration/microgpt_pyrefly_types/index.json 2>/dev/null | head -30
+        echo
+
+    - name: Copy test files outside repo tree
+      run: |
+        # Run from outside the repo so 'import cinderx' resolves to the
+        # pip-installed package, not the repo source directory.
+        cp -r cinderx/test_pyrefly_integration /tmp/test_pyrefly
+        # Copy microgpt.py alongside the test scripts so the loader can import it
+        cp microgpt.py /tmp/test_pyrefly/
+
+    # --- Scalar math / MLP / small MicroGPT benchmarks ---
+
+    - name: "Benchmark: Untyped Python (no JIT)"
+      timeout-minutes: 5
+      run: |
+        BENCHMARK_CONFIG="1_Untyped_(no_JIT)" \
+        PYTHONJITDISABLE=1 \
+        uv run --no-project python /tmp/test_pyrefly/pure_python_benchmark.py
+
+    - name: "Benchmark: Static Python (no JIT)"
+      timeout-minutes: 5
+      run: |
+        BENCHMARK_CONFIG="2_Static_Python_(no_JIT)" \
+        PYTHONJITDISABLE=1 \
+        uv run --no-project python /tmp/test_pyrefly/typed_benchmark.py
+
+    - name: "Benchmark: Static Python + JIT"
+      timeout-minutes: 5
+      run: |
+        BENCHMARK_CONFIG="3_Static_Python_+_JIT" \
+        uv run --no-project python /tmp/test_pyrefly/typed_benchmark.py
+
+    # --- Karpathy MicroGPT (full training + inference) ---
+
+    - name: "MicroGPT: CPython baseline (no JIT)"
+      timeout-minutes: 10
+      run: |
+        BENCHMARK_CONFIG="1_CPython_baseline" \
+        MICROGPT_STEPS=200 MICROGPT_SAMPLES=50 \
+        PYTHONJITDISABLE=1 \
+        uv run --no-project python /tmp/test_pyrefly/microgpt.py
+
+    - name: "MicroGPT: CinderX JIT only"
+      timeout-minutes: 10
+      run: |
+        BENCHMARK_CONFIG="2_CinderX_JIT_only" \
+        MICROGPT_STEPS=200 MICROGPT_SAMPLES=50 \
+        uv run --no-project python /tmp/test_pyrefly/microgpt.py
+
+    - name: "MicroGPT: Static Python + JIT"
+      timeout-minutes: 10
+      run: |
+        BENCHMARK_CONFIG="3_Static_Python_+_JIT" \
+        MICROGPT_STEPS=200 MICROGPT_SAMPLES=50 \
+        uv run --no-project python /tmp/test_pyrefly/run_microgpt_static.py
+
+    # --- Summary table ---
+
+    - name: Benchmark Summary
+      if: always()
+      run: |
+        echo "=== Raw result files ==="
+        ls -la /tmp/benchmark_results/ || true
+        echo
+        uv run --no-project python /tmp/test_pyrefly/collect_results.py
