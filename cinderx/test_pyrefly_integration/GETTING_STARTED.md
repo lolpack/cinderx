@@ -46,7 +46,7 @@ With Static Python + JIT together, typed Python code can approach the performanc
 ### 1. Install
 
 ```bash
-pip install cinderx "pyrefly>=0.57.0"
+pip install cinderx pyrefly
 ```
 
 ### 2. Write typed Python code
